@@ -106,24 +106,33 @@ class loader_SID(data.Dataset):
 
     def __getitem__(self, index):
         if self.cache[index] is None:    
+            # load and process
             data_lowlight = self._load_raw(self.data_list[index][0])
             if self.upsample:
                 data_lowlight = torch.nn.functional.interpolate(data_lowlight.unsqueeze(0), scale_factor=2, mode='bicubic').squeeze(0)
             data_lowlight_gt = None
             if self.return_gt:
                 data_lowlight_gt = self._load_postprocess(self.data_list[index][1])
+            # crop
+            if self.return_gt:
+                # aligned crop
+                data_lowlight, data_lowlight_gt = self._crop([data_lowlight, data_lowlight_gt])
+            else:
+                # single crop
+                data_lowlight = self._crop(data_lowlight)[0]
+            # cache crops because of RAM limitation
             self.cache[index] = (data_lowlight, data_lowlight_gt)
         else:
             data_lowlight, data_lowlight_gt = self.cache[index]
             
         if self.mode == 'train':
             if self.return_gt:
-                return self._crop([data_lowlight, data_lowlight_gt])
-            return self._crop(data_lowlight)[0]
+                return [data_lowlight, data_lowlight_gt]
+            return data_lowlight
         elif self.mode == "test" or self.mode == "val":
             if self.return_gt:
-                return (*self._crop([data_lowlight, data_lowlight_gt]), self.data_list[index][0], self.data_list[index][1])
-            return (self._crop(data_lowlight)[0], self.data_list[index][0])
+                return ([data_lowlight, data_lowlight_gt], self.data_list[index][0], self.data_list[index][1])
+            return (data_lowlight, self.data_list[index][0])
         raise NotImplementedError
 
     def __len__(self):
