@@ -42,6 +42,9 @@ class L_spa(nn.Module):
         self.pool = nn.AvgPool2d(4)
     def forward(self, org , enhance ):
         b,c,h,w = org.shape
+        
+        if c == 4:
+            org = org[:,:3,:,:]
 
         org_mean = torch.mean(org,1,keepdim=True)
         enhance_mean = torch.mean(enhance,1,keepdim=True)
