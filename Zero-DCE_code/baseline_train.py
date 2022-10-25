@@ -153,9 +153,9 @@ def test(config):
         in_fn, gt_fn = os.path.split(in_fp[0])[-1], os.path.split(gt_fp[0])[-1]
         in_fn, gt_fn = in_fn.replace("ARW", "JPG"), gt_fn.replace("ARW", "JPG")
         torchvision.utils.save_image(enhanced_image, os.path.join(
-            model_dir, in_fn))  # XXX 0.jpg -> name, gt, no patch
+            model_dir, in_fn))  
         torchvision.utils.save_image(gt_data, os.path.join(
-            model_dir, gt_fn))  # XXX 0.jpg -> name, gt, no patch
+            model_dir, gt_fn))  
 
 
 if __name__ == "__main__":
