@@ -131,7 +131,7 @@ class loader_SID(data.Dataset):
             return data_lowlight
         elif self.mode == "test" or self.mode == "val":
             if self.return_gt:
-                return ([data_lowlight, data_lowlight_gt], self.data_list[index][0], self.data_list[index][1])
+                return (data_lowlight, data_lowlight_gt, self.data_list[index][0], self.data_list[index][1])
             return (data_lowlight, self.data_list[index][0])
         raise NotImplementedError
 

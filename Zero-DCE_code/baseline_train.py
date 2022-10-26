@@ -1,3 +1,4 @@
+# add epoch vs iteration log
 import torch
 import torch.nn as nn
 import torchvision
@@ -127,10 +128,8 @@ def train(config):
 
 def test(config):
     checkpoint = config.checkpoint
-    results_dir = os.path.join(EXPERIMENT_DIR, "results")
-    mk_and_assert_dir(results_dir)
-    model_dir = os.path.join(results_dir, os.path.split(
-        os.path.split(os.path.split(checkpoint)[0])[0])[-1])
+    model_dir = os.path.join(
+        os.path.split(os.path.split(checkpoint)[0])[0], "results")
     mk_and_assert_dir(model_dir)
     print(f"Results will be saved to {model_dir}")
 
@@ -156,7 +155,6 @@ def test(config):
             model_dir, in_fn))  
         torchvision.utils.save_image(gt_data, os.path.join(
             model_dir, gt_fn))  
-
 
 if __name__ == "__main__":
 
