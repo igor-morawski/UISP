@@ -17,6 +17,8 @@ from torchvision import transforms
 from tensorboardX import SummaryWriter
 from datetime import datetime
 
+import json
+
 
 EXPERIMENT_DIR = "experiments"
 CPT_DIR = "checkpoints"
@@ -30,7 +32,9 @@ def mk_and_assert_dir(dir):
 
 
 def train(config):
-    model_name = config.method + \
+    preamplify_flag = "_preamplify" if config.preamplify else ""
+    normalize_flag = "_normalize" if config.normalize else ""
+    model_name = f"{config.method}{preamplify_flag}{normalize_flag}" + \
         f"_{datetime.today().strftime('%Y%m%d_%H%M')}"
     model_dir = os.path.join(EXPERIMENT_DIR, model_name)
     mk_and_assert_dir(model_dir)
@@ -41,8 +45,8 @@ def train(config):
     log_dir = os.path.join(model_dir, LOG_DIR)
     mk_and_assert_dir(log_dir)
     
-    with open(os.path.join(log_dir, "config.txt"), "w") as f:
-        f.write(config)
+    with open(os.path.join(model_dir, 'config.json'), 'w') as f:
+        json.dump(config.__dict__, f, indent=2)
 
     log_writter = SummaryWriter(log_dir)
 
@@ -57,7 +61,9 @@ def train(config):
                                           config.camera, 'train',
                                           patch_size=config.patch_size,
                                           upsample=True,
-                                          return_gt=return_gt)
+                                          return_gt=return_gt,
+                                          preamplify=config.preamplify,
+                                          normalize=config.normalize)
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=config.train_batch_size,
@@ -145,7 +151,9 @@ def test(config):
                                          config.camera, 'test',
                                          patch_size=config.patch_size,
                                          return_gt=True,
-                                         upsample=True)
+                                         upsample=True,
+                                         preamplify=config.preamplify,
+                                         normalize=config.normalize)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=1, shuffle=True, num_workers=config.num_workers, pin_memory=True)
     for iteration, img_lowlight in enumerate(test_loader):
@@ -182,6 +190,8 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', type=str)
     parser.add_argument('--method', type=str,
                         choices=['ZDCE_supervised', 'ZDCE_unsupervised'], required=True)
+    parser.add_argument('--preamplify', action="store_true")
+    parser.add_argument('--normalize', action="store_true")
 
     config = parser.parse_args()
 

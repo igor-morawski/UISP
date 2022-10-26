@@ -36,7 +36,14 @@ SID_MODES = ['train', 'val', 'test']
 
 
 class loader_SID(data.Dataset):
-    def __init__(self, dataset_path, camera, mode, patch_size=512, cache=True, return_gt = False, upsample = False):
+    def __init__(self, dataset_path, 
+                 camera, mode, 
+                 patch_size=512,
+                 cache=True,
+                 return_gt = False, 
+                 upsample = False, 
+                 preamplify = False,
+                 normalize = False):
         if camera not in SID_CAMERAS:
             raise ValueError(f"{camera} not in supported SID cameras: {SID_CAMERAS}")
         if mode not in SID_MODES:
@@ -44,6 +51,8 @@ class loader_SID(data.Dataset):
         
         self.return_gt = return_gt
         self.patch_size = patch_size
+        self.preamplify = preamplify
+        self.normalize = normalize
         
         self.mode = mode
         self.upsample = upsample
@@ -108,6 +117,16 @@ class loader_SID(data.Dataset):
         if self.cache[index] is None:    
             # load and process
             data_lowlight = self._load_raw(self.data_list[index][0])
+            if self.preamplify:
+                in_fp = os.path.split(self.data_list[index][0])[-1]
+                gt_fp = os.path.split(self.data_list[index][1])[-1]
+                in_exposure = float(in_fp[9:-5])
+                gt_exposure = float(gt_fp[9:-5])
+                ratio = min(gt_exposure / in_exposure, 300)
+                data_lowlight = ratio * data_lowlight 
+            if self.normalize:
+                m, M = max(data_lowlight.min(), 1e-6), max(data_lowlight.max(), 1e-6) # XXX sutiable eps?
+                data_lowlight = (data_lowlight - m) / (M - m)
             if self.upsample:
                 data_lowlight = torch.nn.functional.interpolate(data_lowlight.unsqueeze(0), scale_factor=2, mode='bicubic').squeeze(0)
             data_lowlight_gt = None
