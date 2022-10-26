@@ -81,6 +81,7 @@ def train(config):
     for epoch in range(config.num_epochs):
         for iteration, img_lowlight in enumerate(train_loader):
             iteration_idx += 1
+            log_writter.add_scalar('epoch', epoch, iteration_idx)
 
             if config.strategy == 'supervised':
                 img_lowlight, img_target,  = img_lowlight
