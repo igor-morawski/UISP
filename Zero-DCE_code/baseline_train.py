@@ -40,6 +40,9 @@ def train(config):
 
     log_dir = os.path.join(model_dir, LOG_DIR)
     mk_and_assert_dir(log_dir)
+    
+    with open(os.path.join(log_dir, "config.txt"), "w") as f:
+        f.write(config)
 
     log_writter = SummaryWriter(log_dir)
 
