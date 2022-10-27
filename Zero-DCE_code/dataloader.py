@@ -25,6 +25,8 @@ def pack_raw(raw):
     H = img_shape[0]
     W = img_shape[1]
 
+    # RG
+    # GB
     out = np.concatenate((im[0:H:2, 0:W:2, :], # R
                           im[0:H:2, 1:W:2, :], # G
                           im[1:H:2, 1:W:2, :], # B
