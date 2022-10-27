@@ -13,6 +13,35 @@ import rawpy
 
 random.seed(1143)
 
+xyz_from_rgb = np.array([[0.412453, 0.357580, 0.180423],
+                         [0.212671, 0.715160, 0.072169],
+                         [0.019334, 0.119193, 0.950227]])
+
+rgb_from_xyz = np.linalg.inv(xyz_from_rgb)
+
+def convert_rgbg(matrix, arr):
+    result1 = arr[:,:,:3] @ matrix.T.astype(arr.dtype)
+    return result1[:,:,:3]
+
+def convert_rgbg(matrix, arr):
+    result1 = arr[:,:,:3] @ matrix.T.astype(arr.dtype)
+    result2 = np.concatenate([arr[:,:,0:1],
+                              arr[:,:,3:4],
+                              arr[:,:,2:3]],
+                             axis=-1) @ matrix.T.astype(arr.dtype)
+    return np.concatenate([result1[:,:,:3],result2[:,:,1:2]], axis=-1)
+
+def apply_gamma(im, inplace=False):
+    if inplace:
+        arr = im
+    else:
+        arr = im.copy()
+    mask = arr > 0.0031308
+    arr[mask] = 1.055 * np.power(arr[mask], 1 / 2.4) - 0.055
+    arr[~mask] *= 12.92
+    np.clip(arr, 0, 1, out=arr)
+    return arr
+
 # XXX MOVE TO UTILS
 def pack_raw(raw):
     # pack Bayer image to 4 channels
@@ -45,7 +74,8 @@ class loader_SID(data.Dataset):
                  return_gt = False, 
                  upsample = False, 
                  preamplify = False,
-                 normalize = False):
+                 normalize = False, 
+                 preprocess_colors = False):
         if camera not in SID_CAMERAS:
             raise ValueError(f"{camera} not in supported SID cameras: {SID_CAMERAS}")
         if mode not in SID_MODES:
@@ -55,6 +85,7 @@ class loader_SID(data.Dataset):
         self.patch_size = patch_size
         self.preamplify = preamplify
         self.normalize = normalize
+        self.preprocess_colors = preprocess_colors
         
         self.mode = mode
         self.upsample = upsample
@@ -107,6 +138,11 @@ class loader_SID(data.Dataset):
     def _load_raw(self, data_lowlight_path):
         raw = rawpy.imread(data_lowlight_path)
         data_lowlight = pack_raw(raw) # H, W, 4
+        if self.preprocess_colors:
+            xyz_from_camerargb = np.linalg.inv(raw.rgb_xyz_matrix[:3,:3])
+            rgb_from_camerargb = rgb_from_xyz@xyz_from_camerargb
+            data_lowlight = convert_rgbg(rgb_from_camerargb, data_lowlight)
+            data_lowlight = apply_gamma(data_lowlight)
         return self._convert_im2t(data_lowlight)
     
     def _load_postprocess(self, data_lowlight_path):

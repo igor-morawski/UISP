@@ -34,7 +34,8 @@ def mk_and_assert_dir(dir):
 def train(config):
     preamplify_flag = "_preamplify" if config.preamplify else ""
     normalize_flag = "_normalize" if config.normalize else ""
-    model_name = f"{config.method}{preamplify_flag}{normalize_flag}" + \
+    preprocess_flag = "_preprocess" if config.preprocess else ""
+    model_name = f"{config.method}{preamplify_flag}{normalize_flag}{preprocess_flag}" + \
         f"_{datetime.today().strftime('%Y%m%d_%H%M')}"
     model_dir = os.path.join(EXPERIMENT_DIR, model_name)
     mk_and_assert_dir(model_dir)
@@ -63,7 +64,8 @@ def train(config):
                                           upsample=True,
                                           return_gt=return_gt,
                                           preamplify=config.preamplify,
-                                          normalize=config.normalize)
+                                          normalize=config.normalize,
+                                          preprocess_colors=config.preprocess)
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=config.train_batch_size,
@@ -153,7 +155,8 @@ def test(config):
                                          return_gt=True,
                                          upsample=True,
                                          preamplify=config.preamplify,
-                                         normalize=config.normalize)
+                                         normalize=config.normalize,
+                                         preprocess_colors=config.preprocess)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=1, shuffle=True, num_workers=config.num_workers, pin_memory=True)
     for iteration, img_lowlight in enumerate(test_loader):
@@ -192,6 +195,7 @@ if __name__ == "__main__":
                         choices=['ZDCE_supervised', 'ZDCE_unsupervised'], required=True)
     parser.add_argument('--preamplify', action="store_true")
     parser.add_argument('--normalize', action="store_true")
+    parser.add_argument('--preprocess', action="store_true")
 
     config = parser.parse_args()
 
