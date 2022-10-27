@@ -35,7 +35,7 @@ class enhance_net_nopool(nn.Module):
 
         
     def forward(self, x):
-        xr, xg1, xg2, xb = torch.split(x, 1, dim=1) # RGGB
+        xr, xg1, xb, xg2 = torch.split(x, 1, dim=1) # RGGB
         rgb = torch.cat([xr, (xg1+xg2)/2, xb], axis=1)
         
         x1 = self.relu(self.e_conv1(x))

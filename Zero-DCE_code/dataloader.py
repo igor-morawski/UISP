@@ -25,16 +25,16 @@ def pack_raw(raw):
     H = img_shape[0]
     W = img_shape[1]
 
-    out = np.concatenate((im[0:H:2, 0:W:2, :],
-                          im[0:H:2, 1:W:2, :],
-                          im[1:H:2, 1:W:2, :],
-                          im[1:H:2, 0:W:2, :]), axis=2)
+    out = np.concatenate((im[0:H:2, 0:W:2, :], # R
+                          im[0:H:2, 1:W:2, :], # G
+                          im[1:H:2, 1:W:2, :], # B
+                          im[1:H:2, 0:W:2, :]), axis=2) # G
     return out
 
 SID_CAMERAS = ['Sony', 'Fuji']
 SID_MODES = ['train', 'val', 'test']
 
-
+# XXX remove cache flag 
 class loader_SID(data.Dataset):
     def __init__(self, dataset_path, 
                  camera, mode, 
