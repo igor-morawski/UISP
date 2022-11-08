@@ -89,6 +89,8 @@ class loader_SID(data.Dataset):
         
         self.mode = mode
         self.upsample = upsample
+        if not self.upsample: 
+            raise NotImplementedError  
         
         self.data_list = self.populate_train_list(dataset_path, camera, mode)
         
@@ -135,9 +137,11 @@ class loader_SID(data.Dataset):
         t = t.permute(2, 0, 1) # C, H, W
         return t
     
-    def _load_raw(self, data_lowlight_path):
+    def _load_raw(self, data_lowlight_path, ratio=None):
         raw = rawpy.imread(data_lowlight_path)
         data_lowlight = pack_raw(raw) # H, W, 4
+        if ratio:
+            data_lowlight *= ratio
         if self.preprocess_colors:
             xyz_from_camerargb = np.linalg.inv(raw.rgb_xyz_matrix[:3,:3])
             rgb_from_camerargb = rgb_from_xyz@xyz_from_camerargb
@@ -154,14 +158,14 @@ class loader_SID(data.Dataset):
     def __getitem__(self, index):
         if self.cache[index] is None:    
             # load and process
-            data_lowlight = self._load_raw(self.data_list[index][0])
+            ratio = None
             if self.preamplify:
                 in_fp = os.path.split(self.data_list[index][0])[-1]
                 gt_fp = os.path.split(self.data_list[index][1])[-1]
                 in_exposure = float(in_fp[9:-5])
                 gt_exposure = float(gt_fp[9:-5])
                 ratio = min(gt_exposure / in_exposure, 300)
-                data_lowlight = ratio * data_lowlight 
+            data_lowlight = self._load_raw(self.data_list[index][0], ratio)
             if self.normalize:
                 m, M = max(data_lowlight.min(), 1e-6), max(data_lowlight.max(), 1e-6) # XXX sutiable eps?
                 data_lowlight = (data_lowlight - m) / (M - m)

@@ -24,6 +24,17 @@ EXPERIMENT_DIR = "experiments"
 CPT_DIR = "checkpoints"
 LOG_DIR = "logs"
 
+METHOD2MODEL = {"ZDCE_unsupervised":model.enhance_net_nopool,
+     "ZDCE_supervised":model.enhance_net_nopool,
+     "UISP_unsupervised":model.ll_enhance_net_nopool,
+     "UISP_supervised":model.ll_enhance_net_nopool,
+     "UISPCC_unsupervised":model.ll_cc_enhance_net_nopool,
+     "UISPCC_supervised":model.ll_cc_enhance_net_nopool,
+     "UNet_unsupervised":model.UNet,
+     "UNet_supervised":model.UNet,
+     "UISPSIG_unsupervised":model.sig_enhance_net_nopool,
+     "UISPSIG_supervised":model.sig_enhance_net_nopool,}
+
 
 def mk_and_assert_dir(dir):
     if not os.path.exists(dir):
@@ -51,8 +62,8 @@ def train(config):
 
     log_writter = SummaryWriter(log_dir)
 
-    DCE_net = model.enhance_net_nopool(in_channels=4).cuda()
-    DCE_net.apply(DCE_net.weights_init)
+    net = METHOD2MODEL[config.method](in_channels=4).cuda()
+    net.apply(net.weights_init)
 
     return_gt = False
     if config.strategy == 'supervised':
@@ -80,10 +91,10 @@ def train(config):
         L_exp = Myloss.L_exp(16, 0.6)
         L_TV = Myloss.L_TV()
 
-    optimizer = torch.optim.Adam(DCE_net.parameters(
+    optimizer = torch.optim.Adam(net.parameters(
     ), lr=config.lr, weight_decay=config.weight_decay)
 
-    DCE_net.train()
+    net.train()
 
     iteration_idx = 0
     for epoch in range(config.num_epochs):
@@ -99,43 +110,50 @@ def train(config):
             else:
                 img_lowlight = img_lowlight.cuda()
 
-            enhanced_image_1, enhanced_image, A = DCE_net(img_lowlight)
+            if 'ZDCE' in config.method or 'UISP' in config.method:
+                enhanced_image_1, enhanced_image, A = net(img_lowlight)
+            elif 'UNet' in config.method:
+                enhanced_image = net(img_lowlight)
+            else:
+                raise NotImplementedError
             
-            if config.method == 'ZDCE_supervised':
+            if config.strategy == 'supervised':
                 loss_l1 = L_l1(enhanced_image, img_target)
                 
                 loss = loss_l1
                 
                 log_writter.add_scalar('loss_l1', loss_l1.item(), iteration_idx)
-            elif config.method == "ZDCE_unsupervised":
-                Loss_TV = 200*L_TV(A)
+            else:
+                Loss_TV = 0.
+                if 'ZDCE' in config.method or 'UISP' in config.method:
+                    Loss_TV = 200*L_TV(A)
+                elif 'UNet' in config.method:
+                    Loss_TV = 200*L_TV(enhanced_image)
                 loss_spa = torch.mean(L_spa(enhanced_image, img_lowlight))
                 loss_col = 5*torch.mean(L_color(enhanced_image))
                 loss_exp = 10*torch.mean(L_exp(enhanced_image))
 
                 loss = Loss_TV + loss_spa + loss_col + loss_exp
 
-                log_writter.add_scalar('loss_tv', Loss_TV.item(), iteration_idx)
+                log_writter.add_scalar('loss_tv', Loss_TV.item() if Loss_TV else 0., iteration_idx)
                 log_writter.add_scalar('loss_spa', loss_spa.item(), iteration_idx)
                 log_writter.add_scalar('loss_col', loss_col.item(), iteration_idx)
                 log_writter.add_scalar('loss_exp', loss_exp.item(), iteration_idx)
-            else: 
-                raise NotImplementedError()
             
             log_writter.add_scalar('loss_total', loss.item(), iteration_idx)
 
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm(
-                DCE_net.parameters(), config.grad_clip_norm)
+                net.parameters(), config.grad_clip_norm)
             optimizer.step()
 
             if ((iteration+1) % config.display_iter) == 0:
                 print("Loss at iteration", iteration+1, ":", loss.item())
 
-        torch.save(DCE_net.state_dict(),
+        torch.save(net.state_dict(),
                    os.path.join(checkpoint_dir, f"Epoch_{epoch}.pth"))
-        torch.save(DCE_net.state_dict(),
+        torch.save(net.state_dict(),
                    os.path.join(checkpoint_dir, f"last.pth"))
 
 
@@ -146,8 +164,8 @@ def test(config):
     mk_and_assert_dir(model_dir)
     print(f"Results will be saved to {model_dir}")
 
-    DCE_net = model.enhance_net_nopool(in_channels=4).cuda()
-    DCE_net.load_state_dict(torch.load(checkpoint))
+    net = METHOD2MODEL[config.method](in_channels=4).cuda()
+    net.load_state_dict(torch.load(checkpoint))
 
     test_dataset = dataloader.loader_SID(config.dataset_path,
                                          config.camera, 'test',
@@ -164,7 +182,10 @@ def test(config):
         data_lowlight, gt_data, in_fp, gt_fp = img_lowlight
         data_lowlight = data_lowlight.cuda()
         gt_data = gt_data.cuda()
-        _, enhanced_image, _ = DCE_net(data_lowlight)
+        if 'ZDCE' in config.method or  'UISP' in config.method:
+            _, enhanced_image, _ = net(data_lowlight)
+        elif 'UNet' in config.method:
+            enhanced_image = net(data_lowlight)
         in_fn, gt_fn = os.path.split(in_fp[0])[-1], os.path.split(gt_fp[0])[-1]
         in_fn, gt_fn = in_fn.replace("ARW", "JPG"), gt_fn.replace("ARW", "JPG")
         torchvision.utils.save_image(enhanced_image, os.path.join(
@@ -192,7 +213,11 @@ if __name__ == "__main__":
     parser.add_argument('--test', action="store_true")
     parser.add_argument('--checkpoint', type=str)
     parser.add_argument('--method', type=str,
-                        choices=['ZDCE_supervised', 'ZDCE_unsupervised'], required=True)
+                        choices=['ZDCE_supervised', 'ZDCE_unsupervised', 
+                                 'UISP_supervised', 'UISP_unsupervised', 
+                                 'UNet_supervised', 'UNet_unsupervised',
+                                 'UISPSIG_supervised', 'UISPSIG_unsupervised',
+                                 'UISPCC_supervised', 'UISPCC_unsupervised'], required=True)
     parser.add_argument('--preamplify', action="store_true")
     parser.add_argument('--normalize', action="store_true")
     parser.add_argument('--preprocess', action="store_true")
