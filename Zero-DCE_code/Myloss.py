@@ -158,3 +158,26 @@ class perception_loss(nn.Module):
         h_relu_4_3 = h
         # out = (h_relu_1_2, h_relu_2_2, h_relu_3_3, h_relu_4_3)
         return h_relu_4_3
+
+
+
+class L_CC(nn.Module):
+
+    def __init__(self, grad_weight = 1):
+        super(L_CC, self).__init__()
+        self.grad_weight = grad_weight
+
+    def forward(self, y ):
+        x = torch.pow(torch.max(y, torch.FloatTensor([0]).cuda()), 2.2)
+        batch_size = x.size()[0]
+        h_x = x.size()[2]
+        w_x = x.size()[3]
+        count_h =  (x.size()[2]-1) * x.size()[3]
+        count_w = x.size()[2] * (x.size()[3] - 1)
+        h_tv = torch.abs((x[:,:,1:,:]-x[:,:,:h_x-1,:]))[:,:,:h_x-2,:w_x-2]
+        w_tv = torch.abs((x[:,:,:,1:]-x[:,:,:,:w_x-1]))[:,:,:h_x-2,:w_x-2]
+        grad = self.grad_weight * torch.sqrt(torch.max(torch.pow(h_tv, 2) + torch.pow(w_tv, 2), torch.FloatTensor([0]).cuda()))
+        k = torch.pow(torch.mean(grad, dim=[-1, -2]) - 
+                      torch.sqrt(torch.max(torch.mean(x, dim=[-1, -2]), torch.FloatTensor([0]).cuda())), 2)
+        return k
+

@@ -33,7 +33,9 @@ METHOD2MODEL = {"ZDCE_unsupervised":model.enhance_net_nopool,
      "UNet_unsupervised":model.UNet,
      "UNet_supervised":model.UNet,
      "UISPSIG_unsupervised":model.sig_enhance_net_nopool,
-     "UISPSIG_supervised":model.sig_enhance_net_nopool,}
+     "UISPSIG_supervised":model.sig_enhance_net_nopool,
+     "ZDCESIG_unsupervised":model.sigz_enhance_net_nopool,
+     "ZDCESIG_supervised":model.sigz_enhance_net_nopool,}
 
 
 def mk_and_assert_dir(dir):
@@ -46,7 +48,11 @@ def train(config):
     preamplify_flag = "_preamplify" if config.preamplify else ""
     normalize_flag = "_normalize" if config.normalize else ""
     preprocess_flag = "_preprocess" if config.preprocess else ""
-    model_name = f"{config.method}{preamplify_flag}{normalize_flag}{preprocess_flag}" + \
+    cc_loss_flag = "_CCLoss" if config.cc_loss else ""
+    comment = f"_{config.name}" if config.name else ""
+    if config.cc_loss_grad_weight != 1 and cc_loss_flag:
+        cc_loss_flag += f"w{config.cc_loss_grad_weight}"
+    model_name = f"{config.method}{preamplify_flag}{normalize_flag}{preprocess_flag}{cc_loss_flag}{comment}" + \
         f"_{datetime.today().strftime('%Y%m%d_%H%M')}"
     model_dir = os.path.join(EXPERIMENT_DIR, model_name)
     mk_and_assert_dir(model_dir)
@@ -86,7 +92,7 @@ def train(config):
     if config.strategy == 'supervised':
         L_l1 = torch.nn.L1Loss(reduce=True, reduction='mean')
     else:
-        L_color = Myloss.L_color()
+        L_color = Myloss.L_color() if not config.cc_loss else Myloss.L_CC(config.cc_loss_grad_weight)
         L_spa = Myloss.L_spa()
         L_exp = Myloss.L_exp(16, 0.6)
         L_TV = Myloss.L_TV()
@@ -130,7 +136,7 @@ def train(config):
                 elif 'UNet' in config.method:
                     Loss_TV = 200*L_TV(enhanced_image)
                 loss_spa = torch.mean(L_spa(enhanced_image, img_lowlight))
-                loss_col = 5*torch.mean(L_color(enhanced_image))
+                loss_col = 50*torch.mean(L_color(enhanced_image))
                 loss_exp = 10*torch.mean(L_exp(enhanced_image))
 
                 loss = Loss_TV + loss_spa + loss_col + loss_exp
@@ -204,7 +210,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=0.0001)
     parser.add_argument('--weight_decay', type=float, default=0.0001)
     parser.add_argument('--grad_clip_norm', type=float, default=0.1)
-    parser.add_argument('--num_epochs', type=int, default=200)
+    parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--train_batch_size', type=int, default=8)
     parser.add_argument('--val_batch_size', type=int, default=4)
     parser.add_argument('--num_workers', type=int, default=4)
@@ -213,16 +219,16 @@ if __name__ == "__main__":
     parser.add_argument('--test', action="store_true")
     parser.add_argument('--checkpoint', type=str)
     parser.add_argument('--method', type=str,
-                        choices=['ZDCE_supervised', 'ZDCE_unsupervised', 
-                                 'UISP_supervised', 'UISP_unsupervised', 
-                                 'UNet_supervised', 'UNet_unsupervised',
-                                 'UISPSIG_supervised', 'UISPSIG_unsupervised',
-                                 'UISPCC_supervised', 'UISPCC_unsupervised'], required=True)
+                        choices=list(METHOD2MODEL.keys()), required=True)
     parser.add_argument('--preamplify', action="store_true")
     parser.add_argument('--normalize', action="store_true")
     parser.add_argument('--preprocess', action="store_true")
+    parser.add_argument('--cc_loss', action="store_true")
+    parser.add_argument('--cc_loss_grad_weight', type=float, default=1)
+    parser.add_argument('--name', type=str, default=None)
 
     config = parser.parse_args()
+    
 
     if not os.path.exists(EXPERIMENT_DIR):
         os.mkdir(EXPERIMENT_DIR)

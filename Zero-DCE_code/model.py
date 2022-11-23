@@ -380,7 +380,7 @@ class sig_enhance_net_nopool(nn.Module):
             nn.Conv2d(8,32, kernel_size=5, padding=2),
             nn.MaxPool2d(2, stride=2),
             nn.ReLU(True),
-            nn.Conv2d(32, 2, kernel_size=3, padding=1),
+            nn.Conv2d(32, 1, kernel_size=3, padding=1),
             nn.MaxPool2d(2, stride=2),
             nn.ReLU(True),
             nn.AdaptiveAvgPool2d((1,1)),
@@ -412,9 +412,9 @@ class sig_enhance_net_nopool(nn.Module):
         xr, xg1, xb, xg2 = torch.split(x, 1, dim=1)  # RGGB
         rgb = torch.cat([xr, (xg1+xg2)/2, xb], axis=1)
 
-        amplification, bias = torch.split(self.amplification(F.interpolate(x, size=(256, 256), mode='bilinear')), 1, dim=1)
+        amplification = self.amplification(F.interpolate(x, size=(256, 256), mode='bilinear'))
 
-        x1 = self.relu(self.e_conv1(torch.clamp(x*amplification + bias, 0, 1)))
+        x1 = self.relu(self.e_conv1(torch.clamp(x*amplification, 0, 1)))
         # p1 = self.maxpool(x1)
         x2 = self.relu(self.e_conv2(x1))
         # p2 = self.maxpool(x2)
@@ -430,7 +430,88 @@ class sig_enhance_net_nopool(nn.Module):
         r1, r2, r3, r4, r5, r6, r7, r8 = torch.split(x_r, 3, dim=1)
 
         x = rgb
-        x = torch.clamp(x*amplification + bias, 0, 1)
+        x = torch.clamp(x*amplification, 0, 1)
+        x = x + r1*(torch.pow(x, 2)-x)
+        x = x + r2*(torch.pow(x, 2)-x)
+        x = x + r3*(torch.pow(x, 2)-x)
+        enhance_image_1 = x + r4*(torch.pow(x, 2)-x)
+        x = enhance_image_1 + r5 * \
+            (torch.pow(enhance_image_1, 2)-enhance_image_1)
+        x = x + r6*(torch.pow(x, 2)-x)
+        x = x + r7*(torch.pow(x, 2)-x)
+        enhance_image = x + r8*(torch.pow(x, 2)-x)
+        r = torch.cat([r1, r2, r3, r4, r5, r6, r7, r8], 1)
+        return enhance_image_1, enhance_image, r
+
+
+''' ZDCESIG '''
+
+class sigz_enhance_net_nopool(nn.Module):
+
+    def __init__(self, in_channels=3):
+        super(sigz_enhance_net_nopool, self, ).__init__()
+
+        self.relu = nn.ReLU(inplace=True)
+
+        self.amplification = nn.Sequential(
+            nn.Conv2d(in_channels, 8, kernel_size=7, padding=3),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(8,32, kernel_size=5, padding=2),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.Conv2d(32, 1, kernel_size=3, padding=1),
+            nn.MaxPool2d(2, stride=2),
+            nn.ReLU(True),
+            nn.AdaptiveAvgPool2d((1,1)),
+        )
+
+        number_f = 32
+        self.e_conv1 = nn.Conv2d(in_channels, number_f, 3, 1, 1, bias=True)
+        self.e_conv2 = nn.Conv2d(number_f, number_f, 3, 1, 1, bias=True)
+        self.e_conv3 = nn.Conv2d(number_f, number_f, 3, 1, 1, bias=True)
+        self.e_conv4 = nn.Conv2d(number_f, number_f, 3, 1, 1, bias=True)
+        self.e_conv5 = nn.Conv2d(number_f*2, number_f, 3, 1, 1, bias=True)
+        self.e_conv6 = nn.Conv2d(number_f*2, number_f, 3, 1, 1, bias=True)
+        self.e_conv7 = nn.Conv2d(number_f*2, 24, 3, 1, 1, bias=True)
+
+        self.maxpool = nn.MaxPool2d(
+            2, stride=2, return_indices=False, ceil_mode=False)
+        self.upsample = nn.UpsamplingBilinear2d(scale_factor=2)
+
+    @staticmethod
+    def weights_init(m):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            m.weight.data.normal_(0.0, 0.02)
+        elif classname.find('BatchNorm') != -1:
+            m.weight.data.normal_(1.0, 0.02)
+            m.bias.data.fill_(0)
+
+    def forward(self, x):
+        xr, xg1, xb, xg2 = torch.split(x, 1, dim=1)  # RGGB
+        rgb = torch.cat([xr, (xg1+xg2)/2, xb], axis=1)
+        
+        
+        amplification = self.amplification(F.interpolate(x, size=(256, 256), mode='bilinear'))
+
+        x1 = self.relu(self.e_conv1(torch.clamp(x*amplification, 0, 1)))
+        # p1 = self.maxpool(x1)
+        x2 = self.relu(self.e_conv2(x1))
+        # p2 = self.maxpool(x2)
+        x3 = self.relu(self.e_conv3(x2))
+        # p3 = self.maxpool(x3)
+        x4 = self.relu(self.e_conv4(x3))
+
+        x5 = self.relu(self.e_conv5(torch.cat([x3, x4], 1)))
+        # x5 = self.upsample(x5)
+        x6 = self.relu(self.e_conv6(torch.cat([x2, x5], 1)))
+
+        x_r = F.tanh(self.e_conv7(torch.cat([x1, x6], 1)))
+        r1, r2, r3, r4, r5, r6, r7, r8 = torch.split(x_r, 3, dim=1)
+
+        x = rgb
+        x = torch.clamp(x*amplification, 0, 1)
         x = x + r1*(torch.pow(x, 2)-x)
         x = x + r2*(torch.pow(x, 2)-x)
         x = x + r3*(torch.pow(x, 2)-x)
