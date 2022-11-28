@@ -11,8 +11,9 @@ class L_color(nn.Module):
     def __init__(self):
         super(L_color, self).__init__()
 
-    def forward(self, x ):
+    def forward(self, y ):
 
+        x = y.clone()
         b,c,h,w = x.shape
 
         mean_rgb = torch.mean(x,[2,3],keepdim=True)
@@ -20,7 +21,9 @@ class L_color(nn.Module):
         Drg = torch.pow(mr-mg,2)
         Drb = torch.pow(mr-mb,2)
         Dgb = torch.pow(mb-mg,2)
-        k = torch.pow(torch.pow(Drg,2) + torch.pow(Drb,2) + torch.pow(Dgb,2),0.5)
+        # k = torch.pow(torch.pow(Drg,2) + torch.pow(Drb,2) + torch.pow(Dgb,2),0.5)
+        k = torch.pow(torch.max(torch.pow(Drg,2) + torch.pow(Drb,2) + torch.pow(Dgb,2), torch.FloatTensor([0]).cuda()),0.5)
+
 
 
         return k
@@ -40,7 +43,10 @@ class L_spa(nn.Module):
         self.weight_up = nn.Parameter(data=kernel_up, requires_grad=False)
         self.weight_down = nn.Parameter(data=kernel_down, requires_grad=False)
         self.pool = nn.AvgPool2d(4)
-    def forward(self, org , enhance ):
+    def forward(self, org_ , enhance_ ):
+        
+        org = org_.clone()
+        enhance = enhance_.clone()
         b,c,h,w = org.shape
         
         if c == 4:
@@ -81,7 +87,8 @@ class L_exp(nn.Module):
         # print(1)
         self.pool = nn.AvgPool2d(patch_size)
         self.mean_val = mean_val
-    def forward(self, x ):
+    def forward(self, y ):
+        x = y.clone()
 
         b,c,h,w = x.shape
         x = torch.mean(x,1,keepdim=True)
@@ -104,11 +111,14 @@ class L_TV(nn.Module):
         h_tv = torch.pow((x[:,:,1:,:]-x[:,:,:h_x-1,:]),2).sum()
         w_tv = torch.pow((x[:,:,:,1:]-x[:,:,:,:w_x-1]),2).sum()
         return self.TVLoss_weight*2*(h_tv/count_h+w_tv/count_w)/batch_size
+    
+    
 class Sa_Loss(nn.Module):
     def __init__(self):
         super(Sa_Loss, self).__init__()
         # print(1)
-    def forward(self, x ):
+    def forward(self, y ):
+        x = y.clone()
         # self.grad = np.ones(x.shape,dtype=np.float32)
         b,c,h,w = x.shape
         # x_de = x.cpu().detach().numpy()
@@ -168,7 +178,8 @@ class L_CC(nn.Module):
         self.grad_weight = grad_weight
 
     def forward(self, y ):
-        x = torch.pow(torch.max(y, torch.FloatTensor([0]).cuda()), 2.2)
+        x = y.clone()
+        x = torch.pow(torch.max(x, torch.FloatTensor([0]).cuda()), 2.2)
         batch_size = x.size()[0]
         h_x = x.size()[2]
         w_x = x.size()[3]

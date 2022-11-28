@@ -1,6 +1,7 @@
 # add epoch vs iteration log
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision
 import torch.backends.cudnn as cudnn
 import torch.optim
@@ -49,10 +50,13 @@ def train(config):
     normalize_flag = "_normalize" if config.normalize else ""
     preprocess_flag = "_preprocess" if config.preprocess else ""
     cc_loss_flag = "_CCLoss" if config.cc_loss else ""
+    add_cc_loss_flag = "_ColorLoss_CCLoss" if config.add_cc_loss else ""
+    homogenity_flag = "_homogenity" if config.homogenity else ""
     comment = f"_{config.name}" if config.name else ""
     if config.cc_loss_grad_weight != 1 and cc_loss_flag:
         cc_loss_flag += f"w{config.cc_loss_grad_weight}"
-    model_name = f"{config.method}{preamplify_flag}{normalize_flag}{preprocess_flag}{cc_loss_flag}{comment}" + \
+    model_name = f"{config.method}{preamplify_flag}{normalize_flag}" + \
+        f"{preprocess_flag}{cc_loss_flag}{add_cc_loss_flag}{homogenity_flag}{comment}" + \
         f"_{datetime.today().strftime('%Y%m%d_%H%M')}"
     model_dir = os.path.join(EXPERIMENT_DIR, model_name)
     mk_and_assert_dir(model_dir)
@@ -93,12 +97,18 @@ def train(config):
         L_l1 = torch.nn.L1Loss(reduce=True, reduction='mean')
     else:
         L_color = Myloss.L_color() if not config.cc_loss else Myloss.L_CC(config.cc_loss_grad_weight)
+        if config.add_cc_loss:
+            assert not config.cc_loss
+            L_color_CC = Myloss.L_CC(config.cc_loss_grad_weight)
         L_spa = Myloss.L_spa()
         L_exp = Myloss.L_exp(16, 0.6)
         L_TV = Myloss.L_TV()
+        if config.homogenity:
+            L_homogenity = nn.L1Loss()
 
     optimizer = torch.optim.Adam(net.parameters(
     ), lr=config.lr, weight_decay=config.weight_decay)
+    
 
     net.train()
 
@@ -115,6 +125,13 @@ def train(config):
                 img_target = img_target.cuda()
             else:
                 img_lowlight = img_lowlight.cuda()
+                
+            if config.homogenity:
+                b, _, _, _ = img_lowlight.size()
+                alpha = torch.rand([b, 1, 1, 1]).float().cuda()
+                g1 = net.amplification(F.interpolate(img_lowlight.clone(), size=(256, 256), mode='bilinear'))
+                g2 = net.amplification(alpha*F.interpolate(img_lowlight.clone(), size=(256, 256), mode='bilinear'))
+                loss_amplifier = 0.1 * L_homogenity(alpha*g1, g2)
 
             if 'ZDCE' in config.method or 'UISP' in config.method:
                 enhanced_image_1, enhanced_image, A = net(img_lowlight)
@@ -136,15 +153,26 @@ def train(config):
                 elif 'UNet' in config.method:
                     Loss_TV = 200*L_TV(enhanced_image)
                 loss_spa = torch.mean(L_spa(enhanced_image, img_lowlight))
-                loss_col = 50*torch.mean(L_color(enhanced_image))
+                loss_col = 5*torch.mean(L_color(enhanced_image))
+                if config.add_cc_loss:
+                    loss_col_cc = 50*torch.mean(L_color_CC(enhanced_image))
                 loss_exp = 10*torch.mean(L_exp(enhanced_image))
+                
 
                 loss = Loss_TV + loss_spa + loss_col + loss_exp
+                if config.add_cc_loss:
+                    loss += loss_col_cc
+                if config.homogenity:
+                    loss += loss_amplifier
 
                 log_writter.add_scalar('loss_tv', Loss_TV.item() if Loss_TV else 0., iteration_idx)
                 log_writter.add_scalar('loss_spa', loss_spa.item(), iteration_idx)
                 log_writter.add_scalar('loss_col', loss_col.item(), iteration_idx)
                 log_writter.add_scalar('loss_exp', loss_exp.item(), iteration_idx)
+                if config.add_cc_loss:
+                    log_writter.add_scalar('loss_col_cc', loss_col_cc.item(), iteration_idx)
+                if config.homogenity:
+                    log_writter.add_scalar('loss_amplifier', loss_amplifier.item(), iteration_idx)
             
             log_writter.add_scalar('loss_total', loss.item(), iteration_idx)
 
@@ -161,6 +189,7 @@ def train(config):
                    os.path.join(checkpoint_dir, f"Epoch_{epoch}.pth"))
         torch.save(net.state_dict(),
                    os.path.join(checkpoint_dir, f"last.pth"))
+        
 
 
 def test(config):
@@ -223,8 +252,13 @@ if __name__ == "__main__":
     parser.add_argument('--preamplify', action="store_true")
     parser.add_argument('--normalize', action="store_true")
     parser.add_argument('--preprocess', action="store_true")
-    parser.add_argument('--cc_loss', action="store_true")
+    parser.add_argument('--cc_loss', action="store_true", help=
+                        "Replace L_color with CC_Loss")
     parser.add_argument('--cc_loss_grad_weight', type=float, default=1)
+    parser.add_argument('--add_cc_loss', action="store_true", help=
+                        "Add CC_Loss in addition to original L_color")
+    parser.add_argument('--homogenity', action="store_true", help=
+                        "Add loss for homogenity of preamplification module")
     parser.add_argument('--name', type=str, default=None)
 
     config = parser.parse_args()
