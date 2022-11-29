@@ -95,7 +95,11 @@ class loader_SID(data.Dataset):
         self.data_list = self.populate_train_list(dataset_path, camera, mode)
         
         self.cache = [None] * len(self.data_list)
+        self.crops_cache = {}
         print("Total samples:", len(self.data_list))
+        
+        if not self.patch_size:
+            raise NotImplementedError("Behaviour not tested yet")
 
     def populate_train_list(self, dataset_path, camera, mode, shuffle=True):
         anno_fp = os.path.join(dataset_path, f"{camera}_{mode}_list.txt")
@@ -116,16 +120,21 @@ class loader_SID(data.Dataset):
             random.shuffle(data_list)
         return data_list
     
-    def _crop(self, im,):
+    def _crop(self, im, gt_name):
         # XXX add resize 
         if not isinstance(im, (list, tuple)):
             im = [im, ]
         t = im[0]
         ret = []
         _, H, W = t.shape
-        ps = np.random.randint(self.patch_size, min(H, W))
-        xx = np.random.randint(0, W - ps)
-        yy = np.random.randint(0, H - ps)
+        # many inputs are mapped to the same target, ensure that all are cropped in the same way
+        if gt_name not in self.crops_cache:
+            ps = np.random.randint(self.patch_size, min(H, W))
+            xx = np.random.randint(0, W - ps)
+            yy = np.random.randint(0, H - ps)
+            self.crops_cache[gt_name] = [ps, xx, yy] 
+        else:
+            ps, xx, yy = self.crops_cache[gt_name]
         for t in im:
             t = t[:, yy:yy + ps, xx:xx + ps]
             ret.append(torch.nn.functional.interpolate(t.unsqueeze(0), (self.patch_size, self.patch_size), 
@@ -177,10 +186,14 @@ class loader_SID(data.Dataset):
             # crop
             if self.return_gt:
                 # aligned crop
-                data_lowlight, data_lowlight_gt = self._crop([data_lowlight, data_lowlight_gt])
+                if self.patch_size:
+                    gt_fp = os.path.split(self.data_list[index][1])[-1]
+                    data_lowlight, data_lowlight_gt = self._crop([data_lowlight, data_lowlight_gt], gt_fp)
             else:
-                # single crop
-                data_lowlight = self._crop(data_lowlight)[0]
+                if self.patch_size:
+                    # single crop
+                    gt_fp = os.path.split(self.data_list[index][1])[-1]
+                    data_lowlight = self._crop(data_lowlight, gt_fp)[0]
             # cache crops because of RAM limitation
             self.cache[index] = (data_lowlight, data_lowlight_gt)
         else:
