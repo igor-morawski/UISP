@@ -14,6 +14,7 @@ import model
 import Myloss
 import numpy as np
 from torchvision import transforms
+import torchmetrics
 
 from tensorboardX import SummaryWriter
 from datetime import datetime
@@ -109,6 +110,9 @@ def train(config):
     optimizer = torch.optim.Adam(net.parameters(
     ), lr=config.lr, weight_decay=config.weight_decay)
     
+    if config.homogenity:
+        optimizer_ampl = torch.optim.Adam(net.amplification.parameters(
+        ), lr=config.lr, weight_decay=config.weight_decay)
 
     net.train()
 
@@ -132,6 +136,12 @@ def train(config):
                 g1 = net.amplification(F.interpolate(img_lowlight.clone(), size=(256, 256), mode='bilinear'))
                 g2 = net.amplification(alpha*F.interpolate(img_lowlight.clone(), size=(256, 256), mode='bilinear'))
                 loss_amplifier = 0.1 * L_homogenity(alpha*g1, g2)
+                
+                optimizer_ampl.zero_grad()
+                loss_amplifier.backward()
+                torch.nn.utils.clip_grad_norm(
+                    net.amplification.parameters(), config.grad_clip_norm)
+                optimizer_ampl.step()
 
             if 'ZDCE' in config.method or 'UISP' in config.method:
                 enhanced_image_1, enhanced_image, A = net(img_lowlight)
@@ -162,8 +172,8 @@ def train(config):
                 loss = Loss_TV + loss_spa + loss_col + loss_exp
                 if config.add_cc_loss:
                     loss += loss_col_cc
-                if config.homogenity:
-                    loss += loss_amplifier
+                # if config.homogenity:
+                #     loss += loss_amplifier
 
                 log_writter.add_scalar('loss_tv', Loss_TV.item() if Loss_TV else 0., iteration_idx)
                 log_writter.add_scalar('loss_spa', loss_spa.item(), iteration_idx)
@@ -209,9 +219,15 @@ def test(config):
                                          upsample=True,
                                          preamplify=config.preamplify,
                                          normalize=config.normalize,
-                                         preprocess_colors=config.preprocess)
+                                         preprocess_colors=config.preprocess,
+                                         cache=False)
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=1, shuffle=True, num_workers=config.num_workers, pin_memory=True)
+    
+    metrics = {'PSNR' : torchmetrics.PeakSignalNoiseRatio(data_range=1),
+               'SSIM' : torchmetrics.StructuralSimilarityIndexMeasure()}
+    metric_results = {}
+    
     for iteration, img_lowlight in enumerate(test_loader):
         print(iteration)
         data_lowlight, gt_data, in_fp, gt_fp = img_lowlight
@@ -221,12 +237,21 @@ def test(config):
             _, enhanced_image, _ = net(data_lowlight)
         elif 'UNet' in config.method:
             enhanced_image = net(data_lowlight)
+        for metric_name in metrics.keys():
+            metrics[metric_name].update(enhanced_image, gt_data)
         in_fn, gt_fn = os.path.split(in_fp[0])[-1], os.path.split(gt_fp[0])[-1]
         in_fn, gt_fn = in_fn.replace("ARW", "JPG"), gt_fn.replace("ARW", "JPG")
         torchvision.utils.save_image(enhanced_image, os.path.join(
             model_dir, in_fn))  
         torchvision.utils.save_image(gt_data, os.path.join(
             model_dir, gt_fn))  
+    for metric_name, metric in metrics.items():
+        metric_results[metric_name] = metric.compute().item()
+    with open(os.path.join(model_dir, 'metrics.json'), 'w') as f:
+        json.dump(metric_results, f, indent=2)
+        print(f"Metrics saved to {f.name}")
+    
+        
 
 if __name__ == "__main__":
 
@@ -242,7 +267,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_epochs', type=int, default=50)
     parser.add_argument('--train_batch_size', type=int, default=8)
     parser.add_argument('--val_batch_size', type=int, default=4)
-    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--num_workers', type=int, default=1)
     parser.add_argument('--display_iter', type=int, default=10)
     parser.add_argument('--snapshot_iter', type=int, default=10)
     parser.add_argument('--test', action="store_true")
@@ -263,7 +288,9 @@ if __name__ == "__main__":
 
     config = parser.parse_args()
     
-
+    if config.num_workers > 1:
+        raise Exception("num_workers > 1 can't cache correctly")
+        
     if not os.path.exists(EXPERIMENT_DIR):
         os.mkdir(EXPERIMENT_DIR)
     assert os.path.exists(EXPERIMENT_DIR)
